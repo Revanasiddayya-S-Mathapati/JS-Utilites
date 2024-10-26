@@ -1,0 +1,572 @@
+<meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
+<meta content="utf-8" http-equiv="encoding" />
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      .topnav {
+        background-color: #000000;
+        overflow: hidden;
+      }
+
+      /* Style the links inside the navigation bar */
+      .topnav a {
+        float: left;
+        color: #f2f2f2;
+        text-align: center;
+        padding: 14px 16px;
+        text-decoration: none;
+        font-size: 17px;
+      }
+
+      /* Change the color of links on hover */
+      .topnav a:hover {
+        background-color: rgb(188, 188, 188);
+        color: rgb(0, 0, 0);
+      }
+
+      /* Add a color to the active/current link */
+      .topnav a.active {
+        background-color: #000000;
+        color: white;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 50px;
+      }
+      /* Create two equal columns that floats next to each other */
+      /* .column {
+  float: left;
+  width: 25%;
+  padding: 10px;
+} */
+      .row {
+        background-color: rgb(188, 188, 188);
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-evenly;
+      }
+      h2 {
+        justify-content: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topnav">
+      <a class="active" href="./AP5logChecker.html">AP5 Log Checker</a>
+      <a href="./Utils/TimerUtil.html">Timer Util</a>
+      <a href="./Utils/BitmapToBytehex.html">BitMap TO ByteHex</a>
+    </div>
+    <div id="page-wrapper">
+      <h1>AP5 Log Checker</h1>
+      <div>
+        Select a log file:
+        <input type="file" id="fileInput" />
+        <button type="button" onclick="loadFile()" id="loadFile">
+          Load File
+        </button>
+      </div>
+    </div>
+    <br />
+    <br />
+    <div class="row">
+      <div style="margin: 10px">
+        <!-- <input type="text" id="searchStr"> -->
+        <!-- <button type="button" onclick="searchMsgs()" id="searchMsgs">Search Messages</button><br> -->
+        <h2>APoffset:Slot:TagID</h2>
+        <select id="select" onchange="" size="10" multiple></select>
+      </div>
+      <div>
+        <h2>Hex strings</h2>
+        <textarea name="hexStr" id="hexStr" cols="60" rows="10"></textarea>
+        <h5 name="hexLen" id="hexLen">Hex Length : </h5>
+      </div>
+      <div style="background-color: antiquewhite; margin: 10px">
+        <h2 style="justify-content: center">Bitmap</h2>
+        <h4 id="tagtype">Tag Type : </h4>
+        <canvas id="bitmapCanvas" style="margin: 10px"></canvas>
+      </div>
+    </div>
+  </body>
+</html>
+
+<script>
+  // syncActionMap = {}
+  const syncActionMap = new Map();
+  // seqActMap = {}
+  // fastMS_action_step_map ={}
+  // op_type_converter = {"00": "Write", "01":"Read", "02":"MSS", "03":"MSE", "04":"Delay"}
+  const op_type_converter = new Map();
+  op_type_converter["00"] = "Write";
+  op_type_converter["01"] = "Read";
+  op_type_converter["02"] = "MSS";
+  op_type_converter["03"] = "MSE";
+  op_type_converter["04"] = "Delay";
+  // action_type_converter = {"00": "SOA", "01":"Add Op", "02":"Get Progress", "03":"EOA", "04":"Progress Notifications"}
+  // steps = {"00": "SOT", "01":"BT", "02":"EOT", "03":"EOT"}
+  const steps = new Map();
+  steps["00"] = "SOT";
+  steps["01"] = "BT";
+  steps["02"] = "EOT";
+  steps["03"] = "EOT";
+  // mailbox = {"01": "Write", "02": "Read"}
+  const mailbox = new Map();
+  mailbox["01"] = "Write";
+  mailbox["02"] = "Read";
+
+  const HAmappedlogs = new Map();
+  const MSmappedlogs = new Map();
+
+  class packetDataOld {
+    constructor(seqNo, slotNo, pkt_type, step_name, data) {
+      this.seqNo = seqNo;
+      this.slotNo = slotNo;
+      this.pkt_type = pkt_type;
+      this.step_name = step_name;
+      this.data = data;
+    }
+  }
+  class sentFastMS {
+    constructor(base_slot, op_type, op_data) {
+      this.base_slot = base_slot;
+      this.op_type = op_type;
+      this.op_data = op_data;
+    }
+  }
+
+  const bitMapHex = new Map();
+
+  function parseOldPkt(sentpkt) {
+    // sentPkt = line.split(": Sent:     ")[1]
+    // swappedSeq = sentPkt[8:16]
+    swappedSeq = sentpkt.substring(8, 16);
+    // mailbox_type = mailbox[sentPkt[16:18]]
+    var mailbox_type = mailbox[sentpkt.substring(16, 18)];
+    // sync_word = sentPkt[18:24]
+    // mailbox_len = int(sentPkt[24:26], 16)
+    var mailbox_len = parseInt(sentpkt.substring(24, 26));
+    // ntwk_id = sentPkt[26:34]
+    // pkt_type = sentPkt[34:36]
+    var pkt_type = sentpkt.substring(34, 36);
+    // seqNo = "0x" + swappedSeq[2:4] + swappedSeq[0:2] + swappedSeq[6:8] + swappedSeq[4:6]
+    seqNo =
+      "0x" +
+      swappedSeq.substring(2, 4) +
+      swappedSeq.substring(0, 2) +
+      swappedSeq.substring(6, 8) +
+      swappedSeq.substring(4, 6);
+    // slotNo = int(seqNo[2:6], 16)
+    slotNo = parseInt(seqNo.substring(2, 6), 16);
+    // sent_time = line[0:23]
+    var sent_time = 0;
+    // regAddr = "-"
+    var regAddr = "-";
+    // data = "-"
+    var data = "-";
+    // data_len = 0
+    var data_len = 0;
+    // step_name = "-"
+    var step_name = "-";
+    // if mailbox_type == "Write":
+    if (mailbox_type == "Write") {
+      //     if pkt_type == "01":
+      if (pkt_type == "01") {
+        //         pkt_type = "REG_WRITE"
+        pkt_type = "REG_WRITE";
+        //         data_len = mailbox_len - 9
+        data_len = mailbox_len - 9;
+        //         regAddr = sentPkt[38:44]
+        var regAddr = sentpkt.substring(38, 44);
+        //         data = sentPkt[44 : 44 + data_len * 2]
+        data = sentpkt.substring(44, 44 + data_len * 2);
+
+        //         if regAddr == "800030":
+        if (regAddr == "800030") {
+          //             if data == "00000006":
+          if (data == "00000006") {
+            //                 step_name = "MSS"
+            step_name = "MSS";
+          }
+          //             elif data == "00000002":
+          else if (data == "00000002") {
+            //                 step_name = "MSE"
+            step_name = "MSE";
+          }
+        }
+      }
+      //     elif pkt_type == "0b":
+      else if (pkt_type == "0b") {
+        //         pkt_type = "SCREEN_PACKET"
+        pkt_type = "SCREEN_PACKET";
+        //         data_len = mailbox_len - 5
+        data_len = mailbox_len - 5;
+        //         step_name = steps[sentPkt[36:38]]
+        //         step_name = steps[sentPkt[36:38]]
+        step_name = steps[sentpkt.substring(36, 38)];
+        //         if step_name == "BT":
+        if (step_name == "BT") {
+          //             data = sentPkt[44:-7]
+          data = sentpkt.substring(44, sentpkt.length - 6);
+          //             step_name = step_name + "-" + str(int(sentPkt[38:44],16) + 1)
+
+          step_name =
+            step_name +
+            "-" +
+            (parseInt(sentpkt.substring(38, 44), 16) + 1).toString();
+        }
+        //         else:
+        else {
+          //             data = sentPkt[38:-7]
+          data = sentpkt.substring(38, sentpkt.length - 7);
+        }
+      }
+      //     elif pkt_type == "0c":
+      else if (pkt_type == "0c") {
+        //         pkt_type = "OTA_PACKET"
+        pkt_type = "OTA_PACKET";
+        //         data_len = mailbox_len - 5
+        data_len = mailbox_len - 5;
+        //         step_name = steps[sentPkt[36:38]]
+        step_name = steps[sentpkt(36, 38)];
+        //         if step_name == "BT":
+        if (step_name == "BT") {
+          //             data = sentPkt[42:-7]
+          data = sentpkt.substring(42, sentpkt.length - 6);
+          //             step_name = step_name + "-" + str(int(sentPkt[38:42],16) + 1)
+          step_name =
+            step_name +
+            "-" +
+            (parseInt(sentpkt.substring(38, 42), 16) + 1).toString();
+        }
+        //         else:
+        else {
+          //             data = sentPkt[38:-7]
+          data = sentpkt.substring(38, sentpkt.length - 7);
+        }
+      }
+    }
+    // if mailbox_type == "Read":
+    if (mailbox_type == "Read") {
+      //     pkt_type = "REG_READ"
+      pkt_type = "REG_READ";
+      //     regAddr = sentPkt[36:42]
+      regAddr = sentpkt.substring(36, 42);
+      //     data_len = int(sentPkt[42:44], 16)
+      data_len = parseInt(sentpkt.substring(42, 44), 16);
+      //     if regAddr == "8001bc":
+      if (regAddr == "8001bc") {
+        //         step_name = "R1BC"
+        step_name = "R1BC";
+      }
+      //     elif regAddr == "800098":
+      else if (regAddr == "800098") {
+        //         step_name == "R98"
+        step_name == "R98";
+      }
+    }
+    // return packetDataOld(sent_time, "-", "-", sync_word, seqNo, slotNo, ntwk_id, sentPkt.strip(), "-", pkt_type, step_name, "-", "-", 0, regAddr, data_len, data)
+    return new packetDataOld(seqNo, slotNo, pkt_type, step_name, data);
+  }
+
+  // def parseFastMSpackets(line):
+  function parseFastMSpackets(sentpkt) {
+    //     sentPkt = line.split(": Sent:     ")[1]
+    //     sent_time = line[0:23]
+    //     recieved_time = "-"
+    //     action_id = sentPkt[10:12] + sentPkt[8:10]
+    var action_id = sentpkt.substring(10, 12) + sentpkt.substring(8, 10);
+    //     action_type = sentPkt[12:14]
+    var action_type = sentpkt.substring(12, 14);
+    //     step_id = (str(int(sentPkt[16:17])&3) + sentPkt[17:18] + sentPkt[14:16]) if (action_type == "01") else "-"
+    if (action_type == "01") {
+      var step_id =
+        (parseInt(sentpkt.substring(16, 17)) & 3).toString() +
+        sentpkt.substring(17, 18) +
+        sentpkt.substring(14, 16);
+    } else {
+      var step_id = "-";
+    }
+    //     base_slot = (sentPkt[16:18] + sentPkt[14:16]) if (action_type == "00") else  (syncActionMap[action_id]["base_slot"] if action_id in syncActionMap else "-")
+    var base_slot = 0;
+    if (action_type === "00") {
+      base_slot = sentpkt.slice(16, 18) + sentpkt.slice(14, 16);
+    } else {
+      if (action_id in syncActionMap) {
+        base_slot = syncActionMap[action_id]["base_slot"];
+      } else {
+        base_slot = "-";
+      }
+    }
+    //     sync_word = sentPkt[26:32] if (action_type == "00") else (syncActionMap[action_id]["sync_word"] if action_id in syncActionMap else "-")
+    let sync_word;
+    if (action_type === "00") {
+      sync_word = sentpkt.slice(26, 32);
+    } else {
+      if (action_id in syncActionMap) {
+        sync_word = syncActionMap[action_id]["sync_word"];
+      } else {
+        sync_word = "-";
+      }
+    }
+    //     assigned_id = int(sync_word, 16) if (sync_word and sync_word != "-") else "-"
+    let assigned_id =
+      sync_word && sync_word !== "-" ? parseInt(sync_word, 16) : "-";
+
+    //     if action_type == "00":
+    if (action_type == "00") {
+      //         syncActionMap[action_id] = {}
+      syncActionMap[action_id] = {};
+      //         syncActionMap[action_id]["sync_word"] = sync_word
+      syncActionMap[action_id]["sync_word"] = sync_word;
+      //         syncActionMap[action_id]["base_slot"] = base_slot
+      syncActionMap[action_id]["base_slot"] = base_slot;
+    }
+    //     net_addr = sentPkt[18:26] if (action_type == "00") else "-"
+    let net_addr;
+    if (action_type == "00") {
+      net_addr = sentpkt.slice(18, 26);
+    } else {
+      net_addr = "-";
+    }
+    //     max_attempts = int(sentPkt[18:20], 16) & int('0b0111111', 2) if (action_type == "01") else "-"
+
+    //     op_type = op_type_converter[sentPkt[20:22]] if (action_type == "01") else "-"
+    var op_type = "";
+    if (action_type == "01") {
+      op_type = op_type_converter[sentpkt.substring(20, 22)];
+    } else {
+      op_type = "-";
+    }
+    //     if op_type == "Write":
+    if (op_type == "Write") {
+      //         sub_op_type_hex = sentPkt[24:26]
+      var sub_op_type_hex = sentpkt.substring(24, 26);
+      //         if sub_op_type_hex == "0b":
+      if (sub_op_type_hex == "0b") {
+        //             sub_op_type = "SCRN"
+        sub_op_type = "SCRN";
+        sub_sub_op_type = steps[sentpkt.substring(28, 30)];
+        //             sub_sub_op_type = steps[sentPkt[28:30]]
+        //             op_type = op_type + " " + sub_op_type + " " + sub_sub_op_type
+        op_type = op_type + " " + sub_op_type + " " + sub_sub_op_type;
+      }
+      //         elif sub_op_type_hex == "0c":
+      else if (sub_op_type_hex == "0c") {
+        //             sub_op_type = "OTA"
+        //             sub_sub_op_type = steps[sentPkt[28:30]]
+        //             op_type = op_type + " " + sub_op_type + " " + sub_sub_op_type
+        sub_op_type = "OTA";
+        sub_sub_op_type = steps[sentpkt.substring(28, 30)];
+        op_type = op_type + " " + sub_op_type + " " + sub_sub_op_type;
+      }
+      //         else:
+      else {
+        //             sub_op_type = "REG"
+        sub_op_type = "REG";
+        //             op_type = op_type + " " + sub_op_type
+        op_type = op_type + " " + sub_op_type;
+      }
+    }
+    //     elif op_type == "Read":
+    else if (op_type == "Read") {
+      //         sub_op_type = sentPkt[30:34]
+      //         op_type = op_type + " " + sub_op_type
+      sub_op_type = sentpkt.substring(30, 34);
+      op_type = op_type + " " + sub_op_type;
+    }
+    //     isSuccess = "-"
+    //     op_data = sentPkt[22:-7] if (action_type == "01") else "-"
+    var op_data;
+    if (action_type == "01") {
+      op_data = sentpkt.substring(22, sentpkt.length - 7);
+    } else {
+      op_data = "-";
+    }
+
+    //     seq_id = getSeqID(action_id, step_id) if (action_type == "01") else "-"
+    //     step_attempts = "-"
+    //     step_notif = "-"
+    //     action_notif = "-"
+    //     time_taken = "-"
+    //     ops_completed = "-"
+    //     avg_attempts = "-"
+    //     return sentFastMS(sent_time, recieved_time, time_taken, action_id, action_type_converter[action_type], step_id, seq_id, base_slot,
+    //             sync_word, assigned_id, net_addr, max_attempts, op_type, isSuccess, ops_completed, step_attempts, avg_attempts, op_data, step_notif, sentPkt)
+    return new sentFastMS(base_slot, op_type, op_data);
+  }
+
+  function loadFile() {
+    var fileInput = document.getElementById("fileInput");
+    var fileDisplayArea = document.getElementById("fileDisplayArea");
+
+    var file = fileInput.files[0];
+    var textType = /text.*/;
+
+    var reader = new FileReader();
+    var mytextarea = document.getElementById("msgDetails");
+    reader.onload = function (e) {
+      // By lines
+      var lines = this.result.split("\n");
+      var select = document.getElementById("select");
+      keep_phrases = [
+        "(AP5Logger) : Sent:",
+        ": Processing: ",
+        "Done with Task: ",
+        "Started with Task:",
+      ];
+
+      tagsList = [];
+      for (var line = 0; line < lines.length; line++) {
+        if (lines[line].indexOf("(AP5Logger) : Sent:") !== -1) {
+          sentpkt = lines[line].split(": Sent:     ");
+          headerID = sentpkt[1].substring(4, 6);
+          if (headerID == "01") {
+            parsedHA = parseOldPkt(sentpkt[1]);
+            if (parsedHA.step_name.includes("BT")) {
+              var curslot = parsedHA.slotNo;
+              if (HAmappedlogs.has(parsedHA.slotNo)) {
+                HAmappedlogs.get(parsedHA.slotNo).set(
+                  parsedHA.step_name,
+                  parsedHA.data
+                );
+              } else {
+                HAmappedlogs.set(parsedHA.slotNo, new Map());
+                HAmappedlogs.get(parsedHA.slotNo).set(
+                  parsedHA.step_name,
+                  parsedHA.data
+                );
+              }
+            }
+          } else {
+            parsedMS = parseFastMSpackets(sentpkt[1]);
+            if (parsedMS.op_type.includes("BT")) {
+              if (MSmappedlogs.has(parsedMS.base_slot)) {
+                MSmappedlogs.get(parsedMS.base_slot).set(
+                  parsedMS.op_data.slice(12, 14),
+                  parsedMS.op_data.slice(14)
+                );
+              } else {
+                MSmappedlogs.set(parsedMS.base_slot, new Map());
+                MSmappedlogs.get(parsedMS.base_slot).set(
+                  parsedMS.op_data.slice(12, 14),
+                  parsedMS.op_data.slice(14)
+                );
+              }
+            }
+          }
+        }
+      }
+
+      for (const [key, value] of HAmappedlogs) {
+        var option = document.createElement("option");
+        option.text = key;
+        option.value = key;
+        select.appendChild(option);
+      }
+      // console.log(MSmappedlogs)
+      for (const [key, value] of MSmappedlogs) {
+        var option = document.createElement("option");
+        option.text = key;
+        option.value = key;
+        select.appendChild(option);
+      }
+    };
+    reader.readAsText(file);
+  }
+  var hexStrtextarea = document.getElementById("hexStr");
+  var hexlength = document.getElementById("hexLen");
+  document.getElementById("select").addEventListener("change", function () {
+    var selectedOption = this.options[this.selectedIndex].value;
+    if (HAmappedlogs.has(Number(selectedOption))) {
+      var str = "";
+      for (const [key, value] of HAmappedlogs.get(Number(selectedOption))) {
+        str = str + value;
+      }
+      console.log(hexStrToBitmap(str));
+      hexStrtextarea.value = str;
+      hexlength.innerText = "Hex Length : "+ str.length;
+    }
+    if (MSmappedlogs.has(selectedOption)) {
+      console.log(MSmappedlogs.get(selectedOption));
+      var str = "";
+      for (const [key, value] of MSmappedlogs.get(selectedOption)) {
+        str = str + value;
+      }
+      console.log(hexStrToBitmap(str));
+    }
+  });
+
+  function hexStrToBitmap(hexStr) {
+    const canvas = document.getElementById("bitmapCanvas");
+    var tagtype = document.getElementById("tagtype");
+    const ctx = canvas.getContext("2d");
+
+    if(hexStr.length === 11024){
+      tagtype.innerText = "Tag Type : 114"
+      // Set canvas size
+    const width = 104; // Width of the bitmap
+    const height = 212; // Height of the bitmap
+    canvas.width = width;
+    canvas.height = height;
+
+    // Convert hex string to binary
+    const binaryStr1 = hexStrToBinary(hexStr);
+    const binaryStr2 = binaryStr1.slice(
+      binaryStr1.length / 2,
+      binaryStr1.length
+    );
+
+    for (let i = 0; i < binaryStr1.length; i++) {
+      const x = i % width;
+      const y = Math.floor(i / width);
+      const color = binaryStr1[i] === "1" ? "white" : "black"; // Assuming '1' represents black and '0' represents white
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, 1, 1);
+    }
+    for (let i = 0; i < binaryStr2.length; i++) {
+      const x = i % width;
+      const y = Math.floor(i / width);
+      var color = "";
+      if (binaryStr2.substring(i, i + 1) == "1") {
+        color = "red";
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+    }
+    if(hexStr.length === 5512){
+      tagtype.innerText = "Tag Type : 113"
+      const width = 104; // Width of the bitmap
+    const height = 212; // Height of the bitmap
+    canvas.width = width;
+    canvas.height = height;
+
+    // Convert hex string to binary
+    const binaryStr1 = hexStrToBinary(hexStr);
+
+    for (let i = 0; i < binaryStr1.length; i++) {
+      const x = i % width;
+      const y = Math.floor(i / width);
+      const color = binaryStr1[i] === "1" ? "white" : "black"; // Assuming '1' represents black and '0' represents white
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, 1, 1);
+    }
+    }
+    
+  }
+
+  function hexStrToBinary(hexStr) {
+    let binaryStr = "";
+    for (let i = 0; i < hexStr.length; i++) {
+      const bin = parseInt(hexStr[i], 16).toString(2).padStart(4, "0");
+      binaryStr += bin;
+    }
+    return binaryStr;
+  }
+</script>
